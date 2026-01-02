@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  nwdaf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nwdaf
+    image: free5gc-nwdaf:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - GIN_MODE=release
+    volumes:
+      - ./config:/root/config
+      - ./log:/root/log
+    networks:
+      - free5gc-net
+    restart: unless-stopped
+    command: ["./nwdaf", "-c", "config/nwdafcfg.yaml", "--loglevel", "info"]
+
+networks:
+  free5gc-net:
+    external: true
+    name: free5gc-compose_privnet
