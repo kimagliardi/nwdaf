@@ -1,0 +1,161 @@
+#
+# Software Name : free5gc-helm
+# SPDX-FileCopyrightText: Copyright (c) 2021 Orange
+# SPDX-License-Identifier: Apache-2.0
+#
+# This software is distributed under the Apache License 2.0,
+# the text of which is available at https://github.com/Orange-OpenSource/towards5gs-helm/blob/main/LICENSE
+# or see the "LICENSE" file for more details.
+#
+# Author: Adapted for NWDAF
+# Software description: An open-source project providing Helm charts to deploy 5G components (Core + RAN) on top of Kubernetes
+#
+
+global:
+  projectName: free5gc
+  sbi:
+    scheme: http
+  nrf:
+    service:
+      name: nrf-nnrf
+      port: 8000
+      type: ClusterIP
+
+# Init containers configuration
+initcontainers:
+  curl:
+    registry: towards5gs
+    image: initcurl
+    tag: "1.0.0"
+
+# NWDAF configuration
+nwdaf:
+  name: nwdaf
+  replicaCount: 1
+
+  image:
+    name: towards5gs/free5gc-nwdaf
+    # Defaults to chart appVersion if not specified
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Service configuration
+  service:
+    name: nwdaf-nnwdaf
+    type: ClusterIP
+    port: 80
+    targetPort: 8000
+
+  # Volume configuration
+  volume:
+    name: nwdaf-volume
+    mount: /free5gc/config/
+
+  # ConfigMap name
+  configmap:
+    name: nwdaf-configmap
+
+  # Pod annotations (for metrics, service mesh, etc.)
+  podAnnotations: {}
+
+  # Image pull secrets
+  imagePullSecrets: []
+
+  # Pod security context
+  podSecurityContext: {}
+
+  # Container security context
+  securityContext: {}
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Readiness probe
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    httpGet:
+      path: /health
+      port: 8000
+
+  # Liveness probe
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    httpGet:
+      path: /health
+      port: 8000
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity rules
+  affinity: {}
+
+  # Autoscaling configuration
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: nwdaf.local
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+    tls: []
+
+  # Metrics configuration for Prometheus
+  metrics:
+    enabled: false
+
+  # NWDAF configuration (mounted as config file)
+  configuration:
+    # Main NWDAF configuration
+    configuration: |
+      info:
+        version: 1.0.0
+        description: NWDAF initial configuration
+
+      configuration:
+        nwdafName: NWDAF
+        sbi:
+          scheme: {{ .Values.global.sbi.scheme }}
+          registerIPv4: {{ .Values.nwdaf.service.name }}
+          bindingIPv4: 0.0.0.0
+          port: 8000
+        serviceNameList:
+          - nnwdaf-eventssubscription
+          - nnwdaf-analyticsinfo
+        nrfUri: {{ .Values.global.sbi.scheme }}://{{ .Values.global.nrf.service.name }}:{{ .Values.global.nrf.service.port }}
+        plmnList:
+          - mcc: "208"
+            mnc: "93"
+        analyticsDelay: 30
+        dataCollection:
+          enabled: true
+          collectionPeriod: 60
+          targetNFs:
+            - AMF
+            - SMF
+            - UPF
+
+    # Logger configuration
+    logger:
+      level: info

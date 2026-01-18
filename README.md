@@ -109,6 +109,62 @@ make docker-logs
 make docker-down
 ```
 
+### Kubernetes Deployment with Helm
+
+This NWDAF can be deployed as part of the free5gc-helm charts. The Helm chart is located in `charts/free5gc-nwdaf/`.
+
+#### Standalone Installation
+
+```bash
+# Create namespace
+kubectl create ns free5gc
+
+# Install NWDAF
+helm -n free5gc install nwdaf ./charts/free5gc-nwdaf/
+
+# Check the pod status
+kubectl -n free5gc get pods -l "nf=nwdaf"
+
+# Uninstall
+helm -n free5gc uninstall nwdaf
+```
+
+#### Integration with free5gc-helm
+
+To integrate NWDAF with the main free5gc-helm charts:
+
+1. Copy the `charts/free5gc-nwdaf/` directory to `free5gc-helm/charts/free5gc/charts/`
+
+2. Add NWDAF to the main chart's `Chart.yaml` dependencies:
+
+```yaml
+dependencies:
+  # ... existing dependencies ...
+  - name: free5gc-nwdaf
+    version: "0.1.0"
+    condition: deployNWDAF
+```
+
+3. Add to the main `values.yaml`:
+
+```yaml
+deployNWDAF: true
+
+# Override NWDAF values if needed
+free5gc-nwdaf:
+  nwdaf:
+    image:
+      name: towards5gs/free5gc-nwdaf
+```
+
+4. Update dependencies and install:
+
+```bash
+cd free5gc-helm/charts/free5gc
+helm dependency update
+helm -n free5gc install free5gc .
+```
+
 ## Configuration
 
 Edit `config/nwdafcfg.yaml` to configure your NWDAF instance:

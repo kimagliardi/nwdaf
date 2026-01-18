@@ -1,7 +1,7 @@
 # Build stage
 FROM golang:1.21-alpine AS builder
 
-WORKDIR /app
+WORKDIR /free5gc
 
 # Install build dependencies
 RUN apk add --no-cache git make
@@ -16,21 +16,27 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o nwdaf ./cmd/main.go
 
-# Runtime stage
-FROM alpine:latest
+# Runtime stage - using the same base as other free5gc NFs
+FROM alpine:3.18
+
+ENV GIN_MODE=release
 
 RUN apk --no-cache add ca-certificates tzdata
 
-WORKDIR /root/
+WORKDIR /free5gc
 
 # Copy binary from builder
-COPY --from=builder /app/nwdaf .
+COPY --from=builder /free5gc/nwdaf ./
 
-# Copy config directory
-COPY --from=builder /app/config ./config
+# Create config directory (config will be mounted via ConfigMap in k8s)
+RUN mkdir -p config
+
+# Copy default config for local development
+COPY --from=builder /free5gc/config ./config
 
 # Expose SBI port
 EXPOSE 8000
 
-# Run the application
-CMD ["./nwdaf", "-c", "config/nwdafcfg.yaml"]
+# Set entrypoint
+ENTRYPOINT ["./nwdaf"]
+CMD ["-c", "config/nwdafcfg.yaml"]

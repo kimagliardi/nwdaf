@@ -1,0 +1,40 @@
+#
+# Software Name : free5gc-helm
+# SPDX-FileCopyrightText: Copyright (c) 2021 Orange
+# SPDX-License-Identifier: Apache-2.0
+#
+# This software is distributed under the Apache License 2.0,
+# the text of which is available at https://github.com/Orange-OpenSource/towards5gs-helm/blob/main/LICENSE
+# or see the "LICENSE" file for more details.
+#
+# Author: Adapted for NWDAF
+# Software description: An open-source project providing Helm charts to deploy 5G components (Core + RAN) on top of Kubernetes
+#
+apiVersion: v2
+name: free5gc-nwdaf
+description: A Helm chart for deploying the free5GC NWDAF (Network Data Analytics Function) on Kubernetes
+
+# Chart type
+type: application
+
+# Chart version - increment this when making changes to the chart
+version: 0.1.0
+
+# Application version - this should match your NWDAF version
+appVersion: "1.0.0"
+
+keywords:
+  - free5gc
+  - 5g
+  - nwdaf
+  - network-analytics
+  - kubernetes
+
+home: https://github.com/free5gc/free5gc
+
+sources:
+  - https://github.com/free5gc/free5gc
+
+maintainers:
+  - name: free5gc
+    email: support@free5gc.org

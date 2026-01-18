@@ -1,0 +1,105 @@
+#
+# Software Name : free5gc-helm
+# SPDX-FileCopyrightText: Copyright (c) 2021 Orange
+# SPDX-License-Identifier: Apache-2.0
+#
+# This software is distributed under the Apache License 2.0,
+# the text of which is available at https://github.com/Orange-OpenSource/towards5gs-helm/blob/main/LICENSE
+# or see the "LICENSE" file for more details.
+#
+# Author: Adapted for NWDAF
+# Software description: An open-source project providing Helm charts to deploy 5G components (Core + RAN) on top of Kubernetes
+#
+{{- with .Values.nwdaf }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "free5gc-nwdaf.fullname" $ }}-{{ .name }}
+  labels:
+    {{- include "free5gc-nwdaf.labels" $ | nindent 4 }}
+    project: {{ $.Values.global.projectName }}
+    nf: {{ .name }}
+spec:
+  {{- if not .autoscaling.enabled }}
+  replicas: {{ .replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "free5gc-nwdaf.selectorLabels" $ | nindent 6 }}
+      project: {{ $.Values.global.projectName }}
+      nf: {{ .name }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/nwdaf-configmap.yaml") $ | sha256sum }}
+        {{- include "free5gc-nwdaf.nwdafAnnotations" $ | nindent 8 }}
+      labels:
+        {{- include "free5gc-nwdaf.selectorLabels" $ | nindent 8 }}
+        project: {{ $.Values.global.projectName }}
+        nf: {{ .name }}
+    spec:
+      {{- with .imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+      - name: wait-for-nrf
+        image: {{ include "free5gc-nwdaf.initImage" $ }}
+        imagePullPolicy: {{ .image.pullPolicy }}
+        env:
+        - name: DEPENDENCIES
+          value: {{ $.Values.global.sbi.scheme }}://{{ $.Values.global.nrf.service.name }}:{{ $.Values.global.nrf.service.port }}
+        command: ['sh', '-c', 'set -x; while [ $(curl --insecure --connect-timeout 1 -s -o /dev/null -w "%{http_code}" $DEPENDENCIES) -ne 200 ]; do echo waiting for $DEPENDENCIES; sleep 1; done;']
+      containers:
+      - name: {{ .name }}
+        image: {{ include "free5gc-nwdaf.image" $ }}
+        imagePullPolicy: {{ .image.pullPolicy }}
+        {{- with .securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+        ports:
+        - name: sbi
+          containerPort: {{ .service.targetPort }}
+          protocol: TCP
+        command: ["./nwdaf"]
+        args: ["-c", "{{ .volume.mount }}nwdafcfg.yaml"]
+        env:
+        - name: GIN_MODE
+          value: release
+        volumeMounts:
+        - name: {{ .volume.name }}
+          mountPath: {{ .volume.mount }}
+        {{- with .resources }}
+        resources:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+      volumes:
+      - name: {{ .volume.name }}
+        configMap:
+          name: {{ .configmap.name }}
+      {{- with .nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
