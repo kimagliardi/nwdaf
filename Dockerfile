@@ -21,7 +21,7 @@ FROM alpine:3.18
 
 ENV GIN_MODE=release
 
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata curl
 
 WORKDIR /free5gc
 

@@ -66,10 +66,10 @@ func (a *Agent) monitorLoop() {
 	// Ask LLM
 	decision := a.askLlmForDecision(rates, activePolicy)
 	if decision.ShouldSteer && decision.Target != "" {
-		logger.AppLog.Infof("🤖 LLM Reasoning: %s", decision.Reason)
+		logger.AppLog.Infof("🤖 LLM Decision: %s", decision.Reason)
 		a.executeSteering(decision.Target, decision.Reason)
 	} else {
-		logger.AppLog.Infof("🤖 LLM decision: No steering needed (%s) - Reasoning: %s", decision.Reason, decision.Reason)
+		logger.AppLog.Infof("🤖 LLM Decision: No steering needed - %s", decision.Reason)
 	}
 }
 
@@ -212,7 +212,8 @@ RULES:
 
 Respond with a JSON object:
 {
-  "reasoning": "Explain your logic here step-by-step...",
+  "analysis": "Step-by-step analysis of the metrics against the rules. Mention exact values and thresholds compared.",
+  "reasoning": "Final justification for the decision.",
   "decision": "edge1" | "edge2" | "none"
 }
 
@@ -237,6 +238,7 @@ Your JSON response:`, edge1Kb, edge2Kb, upfbKb, activePolicy, thresholdKb)
 
 	jsonStr := response[start : end+1]
 	var result struct {
+		Analysis  string `json:"analysis"`
 		Reasoning string `json:"reasoning"`
 		Decision  string `json:"decision"`
 	}
@@ -247,13 +249,15 @@ Your JSON response:`, edge1Kb, edge2Kb, upfbKb, activePolicy, thresholdKb)
 	}
 
 	decisionClean := strings.ToLower(strings.TrimSpace(result.Decision))
+	fullReason := fmt.Sprintf("Analysis: %s | Reasoning: %s", result.Analysis, result.Reasoning)
+
 	if decisionClean == "edge1" {
-		return SteeringDecision{true, "edge1", result.Reasoning}
+		return SteeringDecision{true, "edge1", fullReason}
 	} else if decisionClean == "edge2" {
-		return SteeringDecision{true, "edge2", result.Reasoning}
+		return SteeringDecision{true, "edge2", fullReason}
 	}
 
-	return SteeringDecision{false, "", result.Reasoning}
+	return SteeringDecision{false, "", fullReason}
 }
 
 func (a *Agent) executeSteering(target, reason string) {
