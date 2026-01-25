@@ -12,6 +12,7 @@ import (
 
 	"github.com/free5gc/nwdaf/internal/logger"
 	"github.com/free5gc/nwdaf/internal/sbi"
+	"github.com/free5gc/nwdaf/pkg/agent"
 	"github.com/free5gc/nwdaf/pkg/analytics"
 	nwdafContext "github.com/free5gc/nwdaf/pkg/context"
 	"github.com/free5gc/nwdaf/pkg/factory"
@@ -20,12 +21,13 @@ import (
 )
 
 type NWDAF struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	httpServer    *http.Server
-	router        *gin.Engine
-	nwdafContext  *nwdafContext.NWDAFContext
+	ctx             context.Context
+	cancel          context.CancelFunc
+	httpServer      *http.Server
+	router          *gin.Engine
+	nwdafContext    *nwdafContext.NWDAFContext
 	analyticsEngine *analytics.AnalyticsEngine
+	agent           *agent.Agent
 }
 
 func (nwdaf *NWDAF) Initialize(c *cli.Context) {
@@ -38,6 +40,9 @@ func (nwdaf *NWDAF) Initialize(c *cli.Context) {
 	// Initialize analytics engine
 	nwdaf.analyticsEngine = analytics.NewAnalyticsEngine(nwdaf.nwdafContext)
 
+	// Initialize Traffic Steering Agent
+	nwdaf.agent = agent.NewAgent()
+
 	// Set up HTTP router
 	nwdaf.setUpRouter()
 }
@@ -46,7 +51,7 @@ func (nwdaf *NWDAF) setUpRouter() {
 	router := gin.Default()
 
 	// Register SBI routes
-	sbi.RegisterRoutes(router, nwdaf.nwdafContext, nwdaf.analyticsEngine)
+	sbi.RegisterRoutes(router, nwdaf.nwdafContext, nwdaf.analyticsEngine, nwdaf.agent)
 
 	nwdaf.router = router
 
@@ -71,6 +76,9 @@ func (nwdaf *NWDAF) Start() {
 	// Start analytics engine
 	wg.Add(1)
 	go nwdaf.startAnalytics(&wg)
+
+	// Start agent
+	nwdaf.agent.Start(nwdaf.ctx)
 
 	// Wait for interrupt signal
 	signalChannel := make(chan os.Signal, 1)
@@ -111,6 +119,11 @@ func (nwdaf *NWDAF) startAnalytics(wg *sync.WaitGroup) {
 
 func (nwdaf *NWDAF) Terminate() {
 	logger.AppLog.Infoln("Terminating NWDAF...")
+
+	// Stop agent
+	if nwdaf.agent != nil {
+		nwdaf.agent.Stop()
+	}
 
 	// Cancel context
 	nwdaf.cancel()

@@ -49,7 +49,7 @@ spec:
       initContainers:
       - name: wait-for-nrf
         image: {{ include "free5gc-nwdaf.initImage" $ }}
-        imagePullPolicy: {{ .image.pullPolicy }}
+        imagePullPolicy: {{ .initImagePullPolicy | default .image.pullPolicy }}
         env:
         - name: DEPENDENCIES
           value: {{ $.Values.global.sbi.scheme }}://{{ $.Values.global.nrf.service.name }}:{{ $.Values.global.nrf.service.port }}
@@ -71,6 +71,14 @@ spec:
         env:
         - name: GIN_MODE
           value: release
+        - name: PROMETHEUS_URL
+          value: {{ .prometheusUrl | default "http://prometheus-prometheus.free5gc:9090" | quote }}
+        - name: NEF_URL
+          value: {{ .nefUrl | default "http://nef-nnef:80" | quote }}
+        - name: OLLAMA_API_BASE
+          value: {{ .ollamaUrl | default "http://192.168.0.128:11434" | quote }}
+        - name: AUTO_STEER_ENABLED
+          value: {{ .autoSteerEnabled | default "true" | quote }}
         volumeMounts:
         - name: {{ .volume.name }}
           mountPath: {{ .volume.mount }}

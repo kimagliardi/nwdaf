@@ -2,15 +2,18 @@ package sbi
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/free5gc/nwdaf/internal/logger"
+	"github.com/free5gc/nwdaf/pkg/agent"
 	"github.com/free5gc/nwdaf/pkg/analytics"
 	nwdafContext "github.com/free5gc/nwdaf/pkg/context"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func RegisterRoutes(router *gin.Engine, ctx *nwdafContext.NWDAFContext, engine *analytics.AnalyticsEngine) {
+func RegisterRoutes(router *gin.Engine, ctx *nwdafContext.NWDAFContext, engine *analytics.AnalyticsEngine, a *agent.Agent) {
 	// Base path for NWDAF SBI
 	nwdafGroup := router.Group("/nnwdaf-eventssubscription/v1")
 	{
@@ -36,6 +39,18 @@ func RegisterRoutes(router *gin.Engine, ctx *nwdafContext.NWDAFContext, engine *
 			handleGetAnalytics(c, ctx, engine)
 		})
 	}
+
+	// Agent Endpoints
+	router.GET("/metrics", func(c *gin.Context) {
+		handleAgentDirectMetrics(c, a)
+	})
+	router.POST("/steer/:target", func(c *gin.Context) {
+		handleAgentSteer(c, a)
+	})
+	router.POST("/chat", func(c *gin.Context) {
+		handleAgentChat(c, a)
+	})
+	router.GET("/agent-metrics", gin.WrapH(promhttp.Handler()))
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -192,4 +207,47 @@ type AnalyticsRequest struct {
 type AnalyticsResponse struct {
 	EventType string      `json:"eventType"`
 	Data      interface{} `json:"data"`
+}
+
+// Agent Handlers
+
+func handleAgentDirectMetrics(c *gin.Context, a *agent.Agent) {
+	res, err := a.GetUPFNetworkMetrics()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error: %v", err)
+		return
+	}
+	c.String(http.StatusOK, res)
+}
+
+func handleAgentSteer(c *gin.Context, a *agent.Agent) {
+	target := c.Param("target")
+	res, err := a.SteerTraffic(target)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error: %v", err)
+		return
+	}
+
+	status := http.StatusOK
+	if !strings.Contains(res, "✅") {
+		status = http.StatusBadRequest
+	}
+	c.String(status, res)
+}
+
+func handleAgentChat(c *gin.Context, a *agent.Agent) {
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'message' field"})
+		return
+	}
+
+	res, err := a.Process(req.Message)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"response": res})
 }
