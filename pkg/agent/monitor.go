@@ -38,6 +38,57 @@ func (a *Agent) StartAutoSteerMonitor() {
 }
 
 func (a *Agent) monitorLoop() {
+	// Check cooldown first
+	if time.Since(a.LastSteerTime).Seconds() < float64(a.Config.AutoSteerCooldown) {
+		logger.AppLog.Debugf("⏳ Skipping monitor cycle (cooldown active)")
+		return
+	}
+
+	// Use ReAct agent if available, otherwise fall back to manual approach
+	if a.AgentExecutor != nil {
+		a.monitorLoopReAct()
+	} else {
+		a.monitorLoopManual()
+	}
+}
+
+// monitorLoopReAct uses the LangChain agent executor for true ReAct-style reasoning
+// The LLM autonomously decides which tools to call and when
+func (a *Agent) monitorLoopReAct() {
+	logger.AppLog.Infoln("🔄 ReAct monitor cycle starting...")
+
+	// Construct a task prompt that lets the LLM decide what to do
+	// The LLM will autonomously call get_upf_network_metrics and steer_traffic as needed
+	thresholdKb := a.Config.AutoSteerThresholdBps / 1000
+	task := fmt.Sprintf(`You are monitoring a 5G network. Your task is to check the current traffic conditions and steer traffic if needed.
+
+INSTRUCTIONS:
+1. First, use get_upf_network_metrics to check current traffic rates
+2. Analyze the metrics against these rules:
+   - If UPFB traffic exceeds %.0f KB/s and no steering is active: steer to the edge with lower traffic
+   - If current edge exceeds threshold: consider rebalancing to the other edge if it has significantly less traffic
+   - Otherwise: no action needed
+3. If steering is needed, use steer_traffic with "edge1" or "edge2"
+4. Report what you observed and what action you took (if any)
+
+Execute this monitoring task now.`, thresholdKb)
+
+	result, err := a.Process(task)
+	if err != nil {
+		logger.AppLog.Errorf("⚠️  ReAct monitor error: %v", err)
+		return
+	}
+
+	logger.AppLog.Infof("🤖 ReAct monitor result: %s", result)
+
+	// Check if steering was performed by looking for success indicators
+	if strings.Contains(result, "✅") || strings.Contains(strings.ToLower(result), "steered") {
+		a.LastSteerTime = time.Now()
+	}
+}
+
+// monitorLoopManual is the fallback approach when LangChain agent is not available
+func (a *Agent) monitorLoopManual() {
 	// Get traffic rates
 	rates, err := a.getUpfTrafficRates()
 	if err != nil {
