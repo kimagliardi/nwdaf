@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/free5gc/nwdaf/internal/logger"
+	"github.com/tmc/langchaingo/agents"
+	"github.com/tmc/langchaingo/chains"
+	"github.com/tmc/langchaingo/llms/ollama"
+	"github.com/tmc/langchaingo/tools"
 )
 
 type AgentConfig struct {
@@ -26,12 +30,13 @@ type AgentConfig struct {
 }
 
 type Agent struct {
-	Config         AgentConfig
-	LLM            *LLMClient
-	ctx            context.Context
-	cancel         context.CancelFunc
-	MonitorRunning bool
-	LastSteerTime  time.Time
+	Config          AgentConfig
+	LLM             *LLMClient
+	AgentExecutor   *agents.Executor
+	ctx             context.Context
+	cancel          context.CancelFunc
+	MonitorRunning  bool
+	LastSteerTime   time.Time
 }
 
 func NewAgent() *Agent {
@@ -50,10 +55,48 @@ func NewAgent() *Agent {
 		AutoSteerCooldown:     getEnvInt("AUTO_STEER_COOLDOWN", 60),
 	}
 
-	return &Agent{
+	agent := &Agent{
 		Config: config,
 		LLM:    NewLLMClient(config.OllamaBase, config.ModelName),
 	}
+
+	// Initialize LangChainGo agent with tools
+	if err := agent.initLangChainAgent(); err != nil {
+		logger.AppLog.Warnf("Failed to initialize LangChain agent: %v. Falling back to simple LLM.", err)
+	}
+
+	return agent
+}
+
+// initLangChainAgent initializes the LangChainGo agent with tools
+func (a *Agent) initLangChainAgent() error {
+	// Create Ollama LLM for LangChain
+	llm, err := ollama.New(
+		ollama.WithServerURL(a.Config.OllamaBase),
+		ollama.WithModel(a.Config.ModelName),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create Ollama LLM: %w", err)
+	}
+
+	// Create tools that wrap our existing functions
+	agentTools := []tools.Tool{
+		NewMetricsTool(a),
+		NewSteerTrafficTool(a),
+	}
+
+	// Create the agent with ReAct-style reasoning
+	oneShotAgent := agents.NewOneShotAgent(
+		llm,
+		agentTools,
+		agents.WithMaxIterations(5),
+	)
+
+	// Create the executor
+	a.AgentExecutor = agents.NewExecutor(oneShotAgent)
+
+	logger.AppLog.Infoln("LangChain agent initialized with tools: get_upf_network_metrics, steer_traffic")
+	return nil
 }
 
 func (a *Agent) Start(ctx context.Context) {
@@ -72,34 +115,45 @@ func (a *Agent) Stop() {
 	}
 }
 
-// Process processes a user chat request
+// Process processes a user chat request using the LangChain agent
 func (a *Agent) Process(request string) (string, error) {
-	// Simple tool selection logic (simplified ReAct)
-	// For now, we will just use a simple routing based on keywords,
-	// or ask the LLM to generate tool calls if we wanted to be fancy.
-	// But let's stick to a simpler "Chain of Thought" or direct LLM response for chat.
+	// Use LangChain agent if available (automatic tool calling)
+	if a.AgentExecutor != nil {
+		return a.processWithLangChain(request)
+	}
 
-	// Note: The python version uses CodeAgent from smolagents which handles tool calling.
-	// To keep it simple in Go without a full agent framework, we'll give the LLM context
-	// about tools and execute if it asks, OR just answer if it is a general question.
+	// Fallback to simple LLM query with context injection
+	return a.processWithSimpleLLM(request)
+}
 
-	// BUT, the request might be "check metrics" or "steer to edge1".
-	// Let's implement a basic command parser + LLM fallback.
+// processWithLangChain uses the LangChain agent executor for automatic tool calling
+func (a *Agent) processWithLangChain(request string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 
-	// 1. Direct tool invocation check (heuristic)
-	// Because implementing a full ReAct loop in Go from scratch is out of scope for this migration,
-	// we will use the LLM to ANSWER, and we can inject context into it.
+	// Enhance the request with context about what the agent can do
+	enhancedRequest := fmt.Sprintf(`You are a 5G Traffic Steering Agent. You have access to tools for monitoring UPF network metrics and steering traffic.
 
-	// However, if we want the agent to use tools, we should tell it about them in the prompt
-	// and ask it to output a special command if it wants to use a tool.
-	// For this simplified version, let's just expose the endpoints directly for tool usage
-	// (like in the Python Flask app) and use the Chat endpoint mainly for Q&A or analysis.
+User Request: %s
 
-	// Wait, the Python agent wraps the tools.
-	// Let's allow the LLM to "Reason" and give a final answer.
-	// If the user wants to take action, they might use the direct endpoints or we can add tool usage later.
-	// For now, let's update the prompt to include current metrics context so the LLM can answer intelligently.
+Think step by step:
+1. If the user asks about metrics, traffic, or network status, use get_upf_network_metrics first
+2. If the user wants to steer or redirect traffic, use steer_traffic with "edge1" or "edge2"
+3. Provide a helpful response based on the tool results
 
+Do not write code. Use the available tools to accomplish the task.`, request)
+
+	result, err := chains.Run(ctx, a.AgentExecutor, enhancedRequest)
+	if err != nil {
+		logger.AppLog.Warnf("LangChain agent error: %v. Falling back to simple LLM.", err)
+		return a.processWithSimpleLLM(request)
+	}
+
+	return result, nil
+}
+
+// processWithSimpleLLM uses the basic LLM client with context injection
+func (a *Agent) processWithSimpleLLM(request string) (string, error) {
 	metrics, _ := a.GetUPFNetworkMetrics()
 
 	prompt := fmt.Sprintf(`You are a Traffic Steering Agent. Refuse to write code.
